@@ -26,3 +26,4 @@ htmlcov/
 *,cover
 
 .secure/*
+alpha_vantage_data/*
