@@ -1,1 +1,1 @@
-# stock_dummy_ohlc
+# stock-dummy-technical
