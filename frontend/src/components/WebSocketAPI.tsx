@@ -13,18 +13,38 @@ const WebSocketComponent: React.FC = () => {
 
     socket.on('connect', () => {
       console.log('Connected to the server');
+      fetchInitialData();
     });
 
-    socket.on('stock_data', (newData) => {
+    socket.on('new_data', (newData) => {
       const parsedData: StockData = JSON.parse(newData);
-      setData(parsedData);
-      console.log('Received stock data from the server', parsedData);
+      setData((prevData: StockData | null) => {
+        if (!prevData) return parsedData; // Set initial data
+        const ohlc = [...parsedData.ohlc, ...prevData.ohlc];
+        return {
+          ...parsedData,
+          ohlc,
+        };
+      });
     });
 
     return () => {
       socket.disconnect();
     };
   }, []);
+
+  const fetchInitialData = () => {
+    fetch('http://localhost:8080/initial-data')
+      .then((response) => response.json())
+      .then((initialData: StockData) => {
+        console.log('Fetched initial data from API', initialData);
+        setData(initialData);
+      })
+      .catch((error) => {
+        console.error('Error fetching initial data from API', error);
+        setData(null); // Set data to null in case of an error
+      });
+  };
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">

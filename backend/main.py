@@ -1,11 +1,8 @@
-# main.py
-
 import json
-from technical_analysis import get_intraday_data, calculate_sma, calculate_ema, calculate_rsi
+from technical_analysis import get_intraday_dummy_data, calculate_sma, calculate_ema, calculate_rsi
 from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_socketio import SocketIO
-import datetime
 from error import ErrorKind
 
 app = Flask(__name__)
@@ -16,74 +13,93 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 ssl_cert_path = '/.secure/tls_cert.crt'
 ssl_key_path = '/.secure/tls_key.key'
 
-SYMBOL = 'IBM'
-INTERVAL = '5min'
-SLEEP_TIME = 60
+symbol = 'IBM'
+interval = '1min'
+interval_secs = 60
+
+# Store historical data and indicators for all stocks
+stock_data = {}
+latest_data = {}
+last_timestamp = None
 
 
-def calculate_intraday_data(date):
-    # Attempt to fetch intraday data
-    data = get_intraday_data(SYMBOL, INTERVAL, date)
+def calculate_initial_data(date):
+    # Fetch and store initial data for all stocks
+    global stock_data, last_timestamp
+    data = get_intraday_dummy_data(symbol, interval, date)
 
-    # Check for error from get_intraday_data
     if isinstance(data, ErrorKind):
-        return data  # Propagate the error
+        return {"error": str(data)}  # Return error response
 
+    ohlc = data[['open', 'high', 'low', 'close', 'volume']].copy()
+    ohlc['timestamp'] = ohlc.index.astype(str)
+    ohlc_dict = ohlc.to_dict(orient='records')
+    sma = calculate_sma(data).iloc[-1]
+    ema = calculate_ema(data).iloc[-1]
+    rsi = calculate_rsi(data).iloc[-1]
+
+    stock_data = {
+        "symbol": symbol,
+        "ohlc": ohlc_dict,
+        "sma": sma,
+        "ema": ema,
+        "rsi": rsi
+    }
+
+    last_timestamp = data.index[0]
+    return stock_data
+
+
+def fetch_stock_prices():
+    global stock_data, latest_data, last_timestamp
+    while True:
+        # Fetch and emit stock prices every minute
+        socketio.sleep(interval_secs)
+        data = get_intraday_dummy_data(symbol, interval, '2023-09-21')
+
+        if isinstance(data, ErrorKind):
+            print(f"Error fetching data: {data}")
+            continue  # Skip this iteration if there was an error
+
+        new_data = data[data.index > last_timestamp]
+        if not new_data.empty:
+            latest_data = new_data
+            ohlc = new_data[['open', 'high', 'low', 'close', 'volume']].copy()
+            ohlc['timestamp'] = ohlc.index.astype(str)
+            ohlc_dict = ohlc.to_dict(orient='records')
+            last_timestamp = new_data.index[0]
+            sma = calculate_sma(data).iloc[-1]
+            ema = calculate_ema(data).iloc[-1]
+            rsi = calculate_rsi(data).iloc[-1]
+
+            data_to_send = {
+                "symbol": symbol,
+                "ohlc": ohlc_dict,
+                "sma": sma,
+                "ema": ema,
+                "rsi": rsi
+            }
+
+            json_data = json.dumps(data_to_send)
+
+            # Send the new data to connected clients
+            socketio.emit('new_data', json_data)
+
+
+@app.route('/initial-data', methods=['GET'])
+def send_initial_data_api():
     try:
-        ohlc = data[['open', 'high', 'low', 'close', 'volume']].copy()
-        ohlc['timestamp'] = ohlc.index.astype(str)
-        ohlc_dict = ohlc.to_dict(orient='records')
-        sma = calculate_sma(data).iloc[-1]
-        ema = calculate_ema(data).iloc[-1]
-        rsi = calculate_rsi(data).iloc[-1]
-
-        stock_data = {
-            "symbol": SYMBOL,
-            "ohlc": ohlc_dict,
-            "sma": sma,
-            "ema": ema,
-            "rsi": rsi
-        }
-        return stock_data
-
+        initial_data = calculate_initial_data('2023-09-21')
+        if "error" in initial_data:
+            # Return error response with status code 500
+            return jsonify(initial_data), 500
+        return jsonify(initial_data)
     except Exception as e:
-        print(f'Error calculating intraday data: {e}')
-        return ErrorKind.INTERNAL_ERROR  # You can define an appropriate error type
+        # Return error response with status code 500
+        return jsonify({"error": str(e)}), 500
 
 
-def send_stock_data():
-    current_date = datetime.datetime.now()
-
-    # Alpha Vantage does not store the Intraday data for the current date.
-    # So, we fetch the data for the previous date.
-    yesterday = current_date - datetime.timedelta(days=1)
-
-    # We'll traverse the date for the last 2 months and send the data to our API.
-    # This will also help us in going in an infinite loop.
-    while yesterday >= current_date - datetime.timedelta(days=60):
-        date_to_fetch = yesterday.strftime('%Y-%m-%d')
-        stock_data = calculate_intraday_data(date_to_fetch)
-
-        # Check if the stock data exists for the given date,
-        # if not, then fetch the data for the previous day
-        if stock_data == ErrorKind.INVALID_DATE:
-            yesterday -= datetime.timedelta(days=1)
-            continue
-
-        # If we get any other error, propagate it
-        elif isinstance(stock_data, ErrorKind):
-            return
-
-        json_data = json.dumps(stock_data)
-
-        socketio.emit('stock_data', json_data)
-        # print(stock_data)
-
-        yesterday -= datetime.timedelta(days=1)
-        socketio.sleep(60)
-
-
-socketio.start_background_task(send_stock_data)
+socketio.start_background_task(fetch_stock_prices)
 
 if __name__ == '__main__':
     socketio.init_app(app, certfile=ssl_cert_path,

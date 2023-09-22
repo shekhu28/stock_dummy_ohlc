@@ -1,9 +1,9 @@
-# technical_analysis.py
 import os
 import requests
 import pandas as pd
 from error import ErrorKind
 from dotenv import load_dotenv
+import datetime
 
 load_dotenv()
 
@@ -13,10 +13,36 @@ API_KEY = os.environ.get('ALPHA_VANTAGE_API')
 # Define the directory where you want to store the data
 DATA_DIR = 'alpha_vantage_data'
 
+US_ET_TZ = datetime.timezone(datetime.timedelta(hours=-4))  # Eastern Time (ET)
+INDIA_TZ = datetime.timezone(datetime.timedelta(
+    hours=5, minutes=30))  # India Standard Time (IST)
+
 
 def ensure_data_directory_exists():
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
+
+
+def get_intraday_dummy_data(symbol, interval, date):
+    """
+    Fetches dummy intraday OHLCV data from Alpha Vantage API for a specific date.
+    """
+
+    try:
+        # Change the cur timezone to US or India for testing purposes
+        cur_time = datetime.datetime.now(US_ET_TZ)
+
+        stock_data = get_intraday_data(symbol, interval, date)
+        if isinstance(stock_data, ErrorKind):
+            return stock_data
+
+        # Filter stock data based on timestamps, ignoring the date
+        filtered_data = stock_data[stock_data.index.time <= cur_time.time()]
+
+        return filtered_data
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return ErrorKind.API_ERROR
 
 
 def get_intraday_data(symbol, interval, date):
@@ -49,28 +75,27 @@ def get_intraday_data(symbol, interval, date):
         # Data does not exist, fetch it from Alpha Vantage
         ensure_data_directory_exists()
         url = f"https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={symbol}&interval={interval}&month={month}&outputsize=full&apikey={API_KEY}"
-
         response = requests.get(url)
         data = response.json()
+
+        # Check if Alpha Vantage returned an error
         if 'Error Message' in data:
             print(f'Error fetching data for {symbol}')
             return ErrorKind.API_ERROR
 
-        if 'Time Series (5min)' in data:
-            df = pd.DataFrame(data['Time Series (5min)']).T
+        # Convert data to a DataFrame
+        if 'Time Series (1min)' in data:
+            df = pd.DataFrame(data['Time Series (1min)']).T
             df.columns = ['open', 'high', 'low', 'close', 'volume']
             df.index = pd.to_datetime(df.index)
             df = df.astype(float)
 
-            # Assuming 'df' is your DataFrame
-
-            # Use .loc to filter rows for the desired date
+            # Filter data based on date
             filtered_data = df[df.index.date == pd.to_datetime(date).date()]
             if filtered_data.empty:
                 return ErrorKind.INVALID_DATE
 
             # Save the data to a CSV file for future use
-
             if not os.path.exists(month_folder):
                 os.makedirs(month_folder)
             filtered_data.to_csv(data_file, index_label='timestamp')
@@ -80,7 +105,7 @@ def get_intraday_data(symbol, interval, date):
             print(f'Error fetching data for {symbol}')
             return ErrorKind.MISSING_DATA
     except Exception as e:
-        print(e)
+        print(f"An error occurred: {e}")
         return ErrorKind.API_ERROR
 
 
@@ -95,7 +120,11 @@ def calculate_sma(data, window=14):
     Returns:
     - pd.Series: Series containing SMA values.
     """
-    return data['close'].rolling(window=window).mean()
+    try:
+        return data['close'].rolling(window=window).mean()
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
 
 
 def calculate_ema(data, span=14):
@@ -109,7 +138,11 @@ def calculate_ema(data, span=14):
     Returns:
     - pd.Series: Series containing EMA values.
     """
-    return data['close'].ewm(span=span, adjust=False).mean()
+    try:
+        return data['close'].ewm(span=span, adjust=False).mean()
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
 
 
 def calculate_rsi(data, window=14):
@@ -123,11 +156,15 @@ def calculate_rsi(data, window=14):
     Returns:
     - pd.Series: Series containing RSI values.
     """
-    price_diff = data['close'].diff()
-    gain = price_diff.where(price_diff > 0, 0)
-    loss = -price_diff.where(price_diff < 0, 0)
-    avg_gain = gain.rolling(window=window).mean()
-    avg_loss = loss.rolling(window=window).mean()
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
+    try:
+        price_diff = data['close'].diff()
+        gain = price_diff.where(price_diff > 0, 0)
+        loss = -price_diff.where(price_diff < 0, 0)
+        avg_gain = gain.rolling(window=window).mean()
+        avg_loss = loss.rolling(window=window).mean()
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None

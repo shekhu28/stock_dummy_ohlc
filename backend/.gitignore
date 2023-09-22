@@ -18,7 +18,6 @@ build/
 docs/_build/
 .vscode
 __pycache__/
-alpha_vantage_data/*
 
 # Coverage reports
 htmlcov/
