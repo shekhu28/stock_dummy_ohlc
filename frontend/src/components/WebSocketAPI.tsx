@@ -3,7 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { StockData } from '@/types/stock_data_type';
 import moment from 'moment';
 
-const SOCKET_URL = 'http://localhost:8080';
+const SOCKET_URL = 'http://localhost:5000';
 
 const WebSocketComponent: React.FC = () => {
   const [data, setData] = useState<StockData | null>(null); // Initialize as null
@@ -18,6 +18,7 @@ const WebSocketComponent: React.FC = () => {
 
     socket.on('new_data', (newData) => {
       const parsedData: StockData = JSON.parse(newData);
+      console.log('Received new data', parsedData);
       setData((prevData: StockData | null) => {
         if (!prevData) return parsedData; // Set initial data
         const ohlc = [...parsedData.ohlc, ...prevData.ohlc];
@@ -34,7 +35,7 @@ const WebSocketComponent: React.FC = () => {
   }, []);
 
   const fetchInitialData = () => {
-    fetch('http://localhost:8080/initial-data')
+    fetch(`${SOCKET_URL}/initial-data`)
       .then((response) => response.json())
       .then((initialData: StockData) => {
         console.log('Fetched initial data from API', initialData);

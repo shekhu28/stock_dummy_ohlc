@@ -1,17 +1,21 @@
 import json
+import os
 from technical_analysis import get_intraday_dummy_data, calculate_sma, calculate_ema, calculate_rsi
 from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_socketio import SocketIO
 from error import ErrorKind
+import numpy as np
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Configure SSL/TLS certificate and key paths
-ssl_cert_path = '/.secure/tls_cert.crt'
-ssl_key_path = '/.secure/tls_key.key'
+current_directory = os.path.dirname(os.path.abspath(__file__))
+
+# Construct the SSL/TLS certificate and key paths relative to the script's location
+ssl_cert_path = os.path.join(current_directory, '.secure', 'localhost.pem')
+ssl_key_path = os.path.join(current_directory, '.secure', 'localhost-key.pem')
 
 symbol = 'IBM'
 interval = '1min'
@@ -23,20 +27,25 @@ latest_data = {}
 last_timestamp = None
 
 
+def handle_missing_data(value):
+    # If a value is NaN, set it to 0
+    return 0 if np.isnan(value) else value
+
+
 def calculate_initial_data(date):
     # Fetch and store initial data for all stocks
     global stock_data, last_timestamp
-    data = get_intraday_dummy_data(symbol, interval, date)
 
+    data = get_intraday_dummy_data(symbol, interval, date)
     if isinstance(data, ErrorKind):
         return {"error": str(data)}  # Return error response
 
     ohlc = data[['open', 'high', 'low', 'close', 'volume']].copy()
     ohlc['timestamp'] = ohlc.index.astype(str)
     ohlc_dict = ohlc.to_dict(orient='records')
-    sma = calculate_sma(data).iloc[-1]
-    ema = calculate_ema(data).iloc[-1]
-    rsi = calculate_rsi(data).iloc[-1]
+    sma = handle_missing_data(calculate_sma(data).iloc[-1])
+    ema = handle_missing_data(calculate_ema(data).iloc[-1])
+    rsi = handle_missing_data(calculate_rsi(data).iloc[-1])
 
     stock_data = {
         "symbol": symbol,
@@ -68,9 +77,9 @@ def fetch_stock_prices():
             ohlc['timestamp'] = ohlc.index.astype(str)
             ohlc_dict = ohlc.to_dict(orient='records')
             last_timestamp = new_data.index[0]
-            sma = calculate_sma(data).iloc[-1]
-            ema = calculate_ema(data).iloc[-1]
-            rsi = calculate_rsi(data).iloc[-1]
+            sma = handle_missing_data(calculate_sma(data).iloc[-1])
+            ema = handle_missing_data(calculate_ema(data).iloc[-1])
+            rsi = handle_missing_data(calculate_rsi(data).iloc[-1])
 
             data_to_send = {
                 "symbol": symbol,
@@ -102,7 +111,5 @@ def send_initial_data_api():
 socketio.start_background_task(fetch_stock_prices)
 
 if __name__ == '__main__':
-    socketio.init_app(app, certfile=ssl_cert_path,
-                      keyfile=ssl_key_path, ssl_version='TLSv1_2')
-    socketio.run(app, host='127.0.0.1', port=8080,
-                 debug=True, use_reloader=False)
+    socketio.init_app(app)
+    socketio.run(app, debug=True, use_reloader=False)

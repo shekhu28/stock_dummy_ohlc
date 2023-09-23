@@ -5,3 +5,4 @@ flask-cors
 eventlet
 pandas
 python-dotenv
+numpy

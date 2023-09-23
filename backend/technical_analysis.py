@@ -30,7 +30,7 @@ def get_intraday_dummy_data(symbol, interval, date):
 
     try:
         # Change the cur timezone to US or India for testing purposes
-        cur_time = datetime.datetime.now(US_ET_TZ)
+        cur_time = datetime.datetime.now(INDIA_TZ)
 
         stock_data = get_intraday_data(symbol, interval, date)
         if isinstance(stock_data, ErrorKind):
@@ -121,7 +121,8 @@ def calculate_sma(data, window=14):
     - pd.Series: Series containing SMA values.
     """
     try:
-        return data['close'].rolling(window=window).mean()
+        sd = data['close'].rolling(window=window).mean()
+        return sd
     except Exception as e:
         print(f"An error occurred: {e}")
         return None
